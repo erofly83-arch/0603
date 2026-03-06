@@ -447,7 +447,7 @@ function samePrice(a, b) {
             const myP  = allColumns.filter(c => !c.metaType && c.fileName === MY_PRICE_FILE_NAME);
             const sup  = allColumns.filter(c => !c.metaType && c.fileName !== MY_PRICE_FILE_NAME);
             sup.sort((a,b)=>{const o={нал:0,бн:1,other:2};return(o[getColPayGroup(a)]??2)-(o[getColPayGroup(b)]??2);});
-            allColumns = [...meta, ...myP, ...sup, ...cust];
+            allColumns = [...meta, ...myP, ...sup];
         }
 }
 
