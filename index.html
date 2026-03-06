@@ -1588,8 +1588,8 @@
 </div>
 </div>
 <!-- ===== CART MODAL ===== -->
-<div id="cartModal">
-<div class="cart-modal-box">
+<div id="cartModal" onclick="if(event.target===this)closeCartModal()">
+<div class="cart-modal-box" onclick="event.stopPropagation()">
 <div class="cart-modal-header">
 <span class="cart-modal-title">🛒 Корзина заказов</span>
 <div class="cart-modal-actions">
