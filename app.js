@@ -34,11 +34,8 @@ let barcodeAliasMap=new Map(),synonymsLoaded=false;
 
     let showTransitColumn = false;
 
-    let customColumns = [];
 
-    let customColData = {};
 
-    let _customColCounter = 0;
     let _transitDisplayName = 'В пути';
 
     let sortMode = 'default';
@@ -55,7 +52,6 @@ let barcodeAliasMap=new Map(),synonymsLoaded=false;
     let compactMatches = true;
     let searchQuery = '';
     let categoryFilter = '';
-    let showFileBarcodes = false;
 
     let filterNewItems = false;
 
@@ -450,11 +446,9 @@ function samePrice(a, b) {
             const meta = allColumns.filter(c => c.metaType && c.metaType !== 'custom');
             const myP  = allColumns.filter(c => !c.metaType && c.fileName === MY_PRICE_FILE_NAME);
             const sup  = allColumns.filter(c => !c.metaType && c.fileName !== MY_PRICE_FILE_NAME);
-            const cust = customColumns.map(cc => ({ fileName: MY_PRICE_FILE_NAME, columnName: cc.displayName, displayName: cc.displayName, key: cc.key, metaType: 'custom' }));
             sup.sort((a,b)=>{const o={нал:0,бн:1,other:2};return(o[getColPayGroup(a)]??2)-(o[getColPayGroup(b)]??2);});
             allColumns = [...meta, ...myP, ...sup, ...cust];
         }
-        customColumns.forEach(cc => visibleColumns.add(cc.key));
 }
 
     function toggleColumn(colKey) {
@@ -688,8 +682,6 @@ function samePrice(a, b) {
             }
             if (showTransitColumn) {
 
-                const transitUserVal = customColData[META_TRANSIT_KEY] && customColData[META_TRANSIT_KEY][item.barcode] !== undefined
-                    ? customColData[META_TRANSIT_KEY][item.barcode] : null;
                 if (transitUserVal !== null) {
                     item.values.set(META_TRANSIT_KEY, [{ val: transitUserVal, rowName: '', originalBarcode: item.barcode, meta: true }]);
                 } else if (!item.values.has(META_TRANSIT_KEY)) {
@@ -697,9 +689,6 @@ function samePrice(a, b) {
                 }
             }
 
-            customColumns.forEach(cc => {
-                const savedVal = customColData[cc.key] && customColData[cc.key][item.barcode] !== undefined
-                    ? customColData[cc.key][item.barcode] : '';
                 item.values.set(cc.key, [{ val: savedVal, rowName: '', originalBarcode: item.barcode, meta: true }]);
             });
 
@@ -793,58 +782,7 @@ return { barcode: item.barcode, packQty, autoDivFactor,
         showToast(showTransitColumn ? '«В пути» добавлена' : '«В пути» скрыта', 'ok');
     }
 
-    function deleteCustomColumn(colKey) {
-        jeConfirmDialog('Удалить колонку? Все введённые данные будут потеряны.', '🗑 Удаление колонки').then(function(ok) {
-          if (!ok) return;
-          customColumns = customColumns.filter(c => c.key !== colKey);
-          delete customColData[colKey];
-          visibleColumns.delete(colKey);
-          autoDetectColumns();
-          processData();
-          renderTable();
-          updateUI();
-          showToast('Колонка удалена', 'ok');
-        });
-    }
 
-    function editCustomCell(barcode, colKey, cellDiv) {
-        if (cellDiv.querySelector('.custom-cell-input')) return;
-
-        const currentVal = (customColData[colKey] && customColData[colKey][barcode] !== undefined)
-            ? customColData[colKey][barcode] : '';
-        const spanVal = cellDiv.querySelector('.custom-cell-val');
-        const spanBtn = cellDiv.querySelector('.custom-cell-edit-btn');
-        if (spanVal) spanVal.style.display = 'none';
-        if (spanBtn) spanBtn.style.display = 'none';
-        const inp = document.createElement('input');
-        inp.type = 'text';
-        inp.className = 'custom-cell-input';
-        inp.value = currentVal;
-        cellDiv.appendChild(inp);
-        inp.focus();
-        inp.select();
-        const commit = () => {
-            const newVal = inp.value.trim();
-            if (!customColData[colKey]) customColData[colKey] = {};
-            customColData[colKey][barcode] = newVal;
-
-            const item = groupedData.find(i => i.barcode === barcode);
-            if (item) item.values.set(colKey, [{ val: newVal, rowName: '', originalBarcode: barcode, meta: true }]);
-            inp.remove();
-            if (spanVal) {
-                spanVal.style.display = '';
-                const isEmpty = !newVal;
-                spanVal.textContent = isEmpty ? '—' : newVal;
-                spanVal.className = 'custom-cell-val' + (isEmpty ? ' empty' : '');
-            }
-            if (spanBtn) spanBtn.style.display = '';
-        };
-        inp.addEventListener('blur', commit);
-        inp.addEventListener('keydown', e => {
-            if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
-            if (e.key === 'Escape') { inp.value = currentVal; inp.blur(); }
-        });
-    }
 
     // Build category dropdown from top-100 frequent words in all product names
     function buildCategoryDropdown() {
@@ -1026,7 +964,6 @@ return { barcode: item.barcode, packQty, autoDivFactor,
         if (newName && newName.trim() !== '' && newName.trim() !== col.displayName) {
             col.displayName = newName.trim();
 
-            const cc = customColumns.find(c => c.key === colKey);
             if (cc) cc.displayName = newName.trim();
 
             if (colKey === META_TRANSIT_KEY) _transitDisplayName = newName.trim();
@@ -1039,7 +976,7 @@ return { barcode: item.barcode, packQty, autoDivFactor,
         let h = `<tr>`;
         h += `<th class="col-barcode">Штрихкод</th>`;
         allFilesData.forEach(({fileName}, idx) => {
-            const ec = showFileBarcodes ? '' : 'hidden-barcode-col';
+            const ec = 'hidden-barcode-col';
             h += `<th class="col-barcode file-barcode-col ${ec}" data-file-index="${idx}">Штрихкод (${fileName})</th>`;
         });
         h += `<th class="col-name">${nameColumn}</th>`;
@@ -1056,7 +993,7 @@ return { barcode: item.barcode, packQty, autoDivFactor,
                 _actions += `<div class="col-header-actions">`;
                 _actions += `<button class="col-header-btn" onclick="event.stopPropagation();editColumnName('${_ck}')" title="Переименовать">✏️</button>`;
                 if (_isTransit) _actions += `<button class="col-header-btn col-header-btn--del" onclick="event.stopPropagation();toggleTransitColumn()" title="Скрыть В пути">✕</button>`;
-                if (_isCustom) _actions += `<button class="col-header-btn col-header-btn--del" onclick="event.stopPropagation();deleteCustomColumn('${_ck}')" title="Удалить колонку">✕</button>`;
+
                 _actions += `</div>`;
             }
             if (_isMyP || _isMeta) {
@@ -1084,7 +1021,7 @@ return { barcode: item.barcode, packQty, autoDivFactor,
         html += `<td class="col-barcode"><div class="barcode-cell"><span class="barcode-text" title="${item.barcode}">${item.barcode}</span><button class="copy-btn" onclick="copyBarcode('${item.barcode}',this)">📋</button>${_bcBadge}</div></td>`;
 
         allFilesData.forEach(({fileName}, idx) => {
-            const ec = showFileBarcodes ? '' : 'hidden-barcode-col';
+            const ec = 'hidden-barcode-col';
             const ob = item.originalBarcodesByFile.get(fileName) || '—';
             html += `<td class="col-barcode file-barcode-col ${ec}" data-file-index="${idx}"><div class="barcode-cell"><span class="barcode-text">${ob}</span>${ob!=='—'?`<button class="copy-btn" onclick="copyBarcode('${ob}',this)">📋</button>`:''}</div></td>`;
         });
@@ -1168,7 +1105,6 @@ return { barcode: item.barcode, packQty, autoDivFactor,
                     const _bc = item.barcode.replace(/'/g, "\'");
                     const _display = _mvStr || '';
                     const _isEmpty = !_display;
-                    html += `<td><div class="custom-cell" onclick="editCustomCell('${_bc}','${_ck}',this)"><span class="custom-cell-val${_isEmpty?' empty':''}">${_isEmpty?'—':_display}</span><span class="custom-cell-edit-btn">✎</span></div></td>`;
                     return;
                 }
                 if (!_mvStr) {
@@ -1627,7 +1563,6 @@ return { barcode: item.barcode, packQty, autoDivFactor,
             document.getElementById('matchByCross').textContent = '—';
             document.getElementById('noMatchCount').textContent = '—';
             document.getElementById('coveragePct').textContent = '—';
-            const _lp2=document.getElementById('legendPanel');if(_lp2)_lp2.style.display='none';
         }
     }
 
@@ -1643,13 +1578,10 @@ return { barcode: item.barcode, packQty, autoDivFactor,
         stockColumn = null;
         transitColumn = null;
         showTransitColumn = false;
-        customColumns = [];
-        customColData = {};
         _transitDisplayName = 'В пути';
         sortMode = 'default';
         compactMatches = true;
         searchQuery = '';
-        showFileBarcodes = false;
         filterNewItems = false;
         showMinPriceMode = false;
 
@@ -1731,7 +1663,6 @@ return { barcode: item.barcode, packQty, autoDivFactor,
         pendingCsvContent = null;
         const _archBtn  = document.getElementById('obrHeaderArchiveBtn');
         const _marchBtn = document.getElementById('monitorDownloadArchiveBtn');
-        const _dlArchBtn = document.getElementById('obrDownloadArchiveBtn');
         if (_archBtn)   _archBtn.disabled   = true;
         if (_marchBtn)  _marchBtn.disabled  = true;
         if (_dlArchBtn) _dlArchBtn.disabled = true;
@@ -1790,9 +1721,7 @@ return { barcode: item.barcode, packQty, autoDivFactor,
     window.copyBarcodeFromPrice = copyBarcodeFromPrice;
     window.dividePrice = dividePrice;
     window.editColumnName = editColumnName;
-    window.editCustomCell = editCustomCell;
     window.toggleTransitColumn = toggleTransitColumn;
-    window.deleteCustomColumn = deleteCustomColumn;
 
     window._generateExcel = generateExcel;
     window._pmApp = {
@@ -2080,7 +2009,6 @@ const sheetSelector  = document.getElementById("obrSheetSelector");
 const sheetSelect    = document.getElementById("obrSheetSelect");
 const loadMoreBtn    = document.getElementById("obrLoadMoreBtn");
 const loadMoreContainer = document.getElementById("obrLoadMoreContainer");
-const downloadArchiveBtn = document.getElementById("obrDownloadArchiveBtn");
 const templatesModal = document.getElementById("obrTemplatesModal");
 const closeTemplatesModal = document.getElementById("obrCloseTemplatesModal");
 const newTemplateInput = document.getElementById("obrNewTemplateInput");
@@ -2329,7 +2257,6 @@ if (obrQueueSkipBtn) {
   });
 }
 
-if (downloadArchiveBtn) {
   downloadArchiveBtn.addEventListener("click", async function() {
     if (!_obrArchiveFiles.length) { showToast('Нет обработанных файлов для архива', 'warn'); return; }
     try {
@@ -2687,7 +2614,6 @@ confirmDownloadCsvBtn.addEventListener("click", async function() {
   const savedType = obrCurrentType;
   AppBridge.emit('csvReady', { csvText: pendingCsvContent, fileName: fn, isMyPrice: savedType === 'myprice' });
   _obrArchiveFiles.push({ fileName: fn, csvText: pendingCsvContent });
-  if (downloadArchiveBtn) downloadArchiveBtn.disabled = false;
   const _hdrAct2 = document.getElementById('obrHeaderArchiveBtn'); if (_hdrAct2) _hdrAct2.disabled = false;
   if (fileQueue.length) {
     showToast(`✅ «${originalFileName}» сохранён → открывается следующий (${_queueDone + 2}/${_queueTotal})…`, 'ok');
@@ -2724,7 +2650,6 @@ downloadBtn.addEventListener("click", async function() {
   AppBridge.emit('csvReady', { csvText: res.csvContent, fileName: fn, isMyPrice: savedType === 'myprice' });
 
   _obrArchiveFiles.push({ fileName: fn, csvText: res.csvContent });
-  if (downloadArchiveBtn) downloadArchiveBtn.disabled = false;
   const _hdrActB = document.getElementById('obrHeaderArchiveBtn'); if (_hdrActB) _hdrActB.disabled = false;
 
   const skippedMeaningful = _lastSkippedRows.filter(s => s.reason !== "Пустой штрихкод");
@@ -2921,17 +2846,6 @@ manageTemplatesBtn.addEventListener("click", e => { e.stopPropagation(); renderT
 closeTemplatesModal.addEventListener("click", () => { templatesModal.style.display = "none"; });
 templatesModal.addEventListener("click", e => { if (e.target === templatesModal) templatesModal.style.display = "none"; });
 
-(function() {
-  const btn = document.getElementById('colDetectManualToggle');
-  const body = document.getElementById('colDetectManualBody');
-  const arrow = document.getElementById('colDetectManualArrow');
-  if (btn && body) {
-    btn.addEventListener('click', function() {
-      const open = body.classList.toggle('open');
-      if (arrow) arrow.textContent = open ? '▼' : '▶';
-    });
-  }
-})();
 
 function _updateColSettingsBadge() {
   const badge = document.getElementById('colSettingsSourceBadge');
