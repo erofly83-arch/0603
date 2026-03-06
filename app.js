@@ -1302,11 +1302,7 @@ return { barcode: item.barcode, packQty, autoDivFactor,
         _mvsRenderVisible();
 
         if (preserveScroll && _prevScroll > 0) {
-            // Double-rAF: first frame lets the browser apply the reflow from
-            // innerHTML changes, second frame restores scroll after it settles
-            requestAnimationFrame(function() {
-                requestAnimationFrame(function() { wrap.scrollTop = _prevScroll; });
-            });
+            requestAnimationFrame(() => { wrap.scrollTop = _prevScroll; });
         }
         // ── DELTA COLUMN HIGHLIGHT ──
         requestAnimationFrame(function() {
@@ -1346,10 +1342,6 @@ return { barcode: item.barcode, packQty, autoDivFactor,
                 if (n === null || n <= 0) return;
                 if (n > threshold) {
                     vObj.val = roundPrice(n / factor);
-                    // Bug fix: persist the manual division so re-rendered cells
-                    // pass the correct divFactor to priceClick (was always 1 before)
-                    vObj._autoDiv = true;
-                    vObj._autoDivFactor = factor;
                     changed = true;
                 }
             });
@@ -1815,8 +1807,14 @@ return { barcode: item.barcode, packQty, autoDivFactor,
 
         const dup = competitorFilesData.findIndex(f => f.fileName === fd.fileName);
         if (dup !== -1) {
-          if (!confirm('Файл «' + fd.fileName + '» уже загружен в мониторинг.\nЗаменить его новой версией?')) return false;
-          competitorFilesData.splice(dup, 1);
+          return new Promise(resolve => {
+            jeConfirmDialog('Файл «' + fd.fileName + '» уже загружен в мониторинг.\nЗаменить его новой версией?', '🔄 Заменить файл').then(function(ok) {
+              if (!ok) { resolve(false); return; }
+              competitorFilesData.splice(dup, 1);
+              competitorFilesData.push(fd);
+              resolve(true);
+            });
+          });
         }
         competitorFilesData.push(fd);
         return true;
@@ -3034,7 +3032,15 @@ AppBridge.on('csvReady', async function(data) {
     } else {
       const added = pm.addCompetitorFile(fileData);
       if (added === false) return;
-
+      // addCompetitorFile returns a Promise when duplicate is found
+      if (added && typeof added.then === 'function') {
+        added.then(function(ok) {
+          if (!ok) return;
+          pm.updateCompetitorStatus();
+          try { pm.processAllData(); } catch(e) { showToast('Ошибка формирования таблицы: ' + e.message, 'err'); }
+        });
+        return;
+      }
       pm.updateCompetitorStatus();
     }
   } catch(stateErr) {
@@ -5204,7 +5210,7 @@ document.addEventListener('DOMContentLoaded', function() {
           const s0 = now0.getFullYear() + '_' + String(now0.getMonth()+1).padStart(2,'0') + '_' + String(now0.getDate()).padStart(2,'0');
           zip.file('settings_' + s0 + '.json', JSON.stringify(combined, null, 2));
         }
-      } catch(je) {}
+      } catch(je) { console.warn('[Archive] JSON settings failed:', je); }
 
       if (typeof window._generateExcel === 'function') {
         try {
@@ -5222,7 +5228,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const ab = await xf.blob.arrayBuffer();
             zip.file(xf.name, ab);
           }
-        } catch(xe) {}
+        } catch(xe) { console.warn('[Archive] Excel failed:', xe); }
       }
       // add cart if has items
       if (typeof window._cartHasItems === 'function' && window._cartHasItems() && typeof window._cartGetExcelBlob === 'function') {
@@ -5233,7 +5239,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const s0 = now0.getFullYear() + '_' + String(now0.getMonth()+1).padStart(2,'0') + '_' + String(now0.getDate()).padStart(2,'0');
             zip.file('cart_' + s0 + '.xlsx', await cartBlob.arrayBuffer());
           }
-        } catch(ce) {}
+        } catch(ce) { console.warn('[Archive] Cart failed:', ce); }
       }
       const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
       const now = new Date();
@@ -5873,7 +5879,7 @@ window._matcherUpdateJsonInfo = function() {
   }
 })();
 
-// [removed duplicate synonymsInput listener - AppBridge.emit already called in primary handler]
+
 
 function toggleSidebar() {
   const sidebar = document.querySelector('.app-sidebar');
@@ -6005,6 +6011,9 @@ function toggleSidebar() {
     } else {
       sfUpdateJson(null, null);
     }
+    setTimeout(function() {
+      if (typeof window._matcherUpdateJsonInfo === 'function') window._matcherUpdateJsonInfo();
+    }, 300);
   });
 
   watchStatus('myPriceStatus', function(txt) {
@@ -6036,11 +6045,6 @@ function toggleSidebar() {
     });
   }
 
-  watchStatus('synonymsStatus', function() {
-    setTimeout(function() {
-      if (typeof window._matcherUpdateJsonInfo === 'function') window._matcherUpdateJsonInfo();
-    }, 300);
-  });
 })();
 
 
@@ -6196,7 +6200,7 @@ function toggleSidebar() {
               _catWordsBase = new Set(session.categoryWords.map(function(s){ return String(s).toLowerCase().trim(); }).filter(Boolean));
               if (typeof _catWordsExpandFromBase === 'function') _catWordsExpandFromBase();
               if (typeof _catExclUpdateBadge === 'function') _catExclUpdateBadge();
-            } catch(ce) {}
+            } catch(ce) { console.warn('[Archive] Cart failed:', ce); }
           }
           if (session.myPriceData && session.myPriceData.data) {
             pm.myPriceData = session.myPriceData;
@@ -6287,19 +6291,6 @@ function toggleSidebar() {
 /* ════════════════════════════════════════════════════
    1. STICKY FILTERS — persist active filters across tab switches
    ════════════════════════════════════════════════════ */
-var _stickyState = {
-  sortMode: 'default',
-  filterNewItems: false,
-  showMinPriceMode: false,
-  compactMatches: true,
-  searchQuery: '',
-  deltaActive: false,
-  deltaMin: '',
-  deltaMax: '',
-  deltaDir: 'cheaper',
-  deltaColA: '__myprice',
-  deltaColB: '__best'
-};
 
 // Снять все фильтры через кнопку «Сбросить все»
 var _stickyBarResetBtn = document.getElementById('stickyBarResetBtn');
@@ -6544,14 +6535,7 @@ window.updateUI = function() {
   if (deltaFilterBtn) deltaFilterBtn.disabled = !hasData;
 };
 
-// Подключаемся к getSortedData через monkey-patch чтобы применять дельта-фильтр
-// Оборачиваем getSortedData после полной загрузки скрипта
-setTimeout(function() {
-  if (typeof getSortedData !== 'function') return;
-  var _origGetSortedData = getSortedData;
-  // Переопределяем в том же скоупе через window (getSortedData живёт в IIFE — патчим через хук)
-  window._deltaApplyToData_REMOVED = true; // replaced below
-}, 200);
+// Дельта-фильтр применяется через window._deltaApplyToData (определена ниже)
 
 // ── DELTA COLUMN HIGHLIGHT via dynamic <style> ──
 window._deltaHighlightCols = function() {
@@ -6613,11 +6597,6 @@ window._deltaHighlightCols = function() {
   }
   styleEl.textContent = rules;
 };
-
-// Перехватываем renderTable чтобы применять дельта-фильтр
-// Т.к. getSortedData внутри IIFE, мы патчим данные через MutationObserver на таблицу — нет,
-// лучше пропатчим через обёртку вокруг функции рендера после загрузки DOM:
-document.addEventListener('DOMContentLoaded', function() {}, false);
 
 // Вспомогательная функция: получить минимальную числовую цену из Map-записей по ключу
 window._deltaGetPrice = function(item, colKey) {
@@ -6824,60 +6803,8 @@ function _undoMatchHistoryEntry(idx) {
 // Экспортируем чтобы существующий код мог вызывать при принятии/отклонении пары
 window._matchHistoryAdd = _addMatchHistoryEntry;
 
-// Патчим confirmMatchPair/rejectMatchPair через MutationObserver — нет,
-// Используем Event-based подход: перехватываем клики на ✓/✗ кнопки в matcherTable
-document.addEventListener('click', function(e) {
-  var matcherTable = document.getElementById('matcherTable');
-  if (!matcherTable) return;
-
-  // Кнопка принять (class m-ibtn, текст ✓ или содержит data-openm атрибут для открытия модала)
-  // В коде принятие идёт через openMatchModal -> confirmMatchPair
-  // Отклонение — через кнопку ✗ которая вызывает rejectMatchPair/skipMatchPair
-  // Перехватим вызовы через обёртку существующих функций после загрузки
-
-}, true);
-
-// После загрузки основного скрипта — оборачиваем функции принятия/отклонения
-setTimeout(function() {
-  // Wrap confirmMatchPair
-  if (typeof window.confirmMatchPair === 'function') {
-    var _orig = window.confirmMatchPair;
-    window.confirmMatchPair = function(pair) {
-      if (pair) window._matchHistoryAdd('ok', pair);
-      return _orig.apply(this, arguments);
-    };
-  }
-  // Wrap skipMatchPair / rejectPair
-  ['skipMatchPair','rejectMatchPair','dismissMatchPair'].forEach(function(fname) {
-    if (typeof window[fname] === 'function') {
-      var _orig2 = window[fname];
-      window[fname] = function(pair) {
-        if (pair) window._matchHistoryAdd('skip', pair);
-        return _orig2.apply(this, arguments);
-      };
-    }
-  });
-}, 500);
-
-// Также перехватываем через делегирование на кнопки ✓ и ✗ в таблице matcher
-// (они рендерятся динамически — ловим через атрибуты)
-document.addEventListener('click', function(e) {
-  var btn = e.target.closest('[data-maccept]');
-  if (btn) {
-    var pairIdx = parseInt(btn.dataset.maccept, 10);
-    if (typeof _matchActivePairs !== 'undefined' && _matchActivePairs[pairIdx]) {
-      window._matchHistoryAdd('ok', _matchActivePairs[pairIdx]);
-    }
-    return;
-  }
-  var skipBtn = e.target.closest('[data-mskip]');
-  if (skipBtn) {
-    var pairIdx2 = parseInt(skipBtn.dataset.mskip, 10);
-    if (typeof _matchActivePairs !== 'undefined' && _matchActivePairs[pairIdx2]) {
-      window._matchHistoryAdd('skip', _matchActivePairs[pairIdx2]);
-    }
-  }
-});
+// История матчера вызывается напрямую из confirmMatchAction (строка ~4313)
+// через window._matchHistoryAdd('ok'/'skip', pair).
 
 })();
 
@@ -7358,23 +7285,14 @@ document.addEventListener('click', function(e) {
     } else {
       cart[p.supplierName].items.push({ barcode: p.supplierBarcode, mainBarcode: p.mainBarcode || p.supplierBarcode, name: p.itemName, price: p.priceDisplay, colKey: p.colKey, qty: qtyToStore, divFactor: storedDivFactor });
     }
-    // Bug fix: save scroll BEFORE any DOM changes (closeCartQtyModal / mvsRender
-    // can trigger reflow that resets scrollTop in some browsers)
-    var _tw = document.getElementById('mainTableWrap');
-    var _savedScroll = _tw ? _tw.scrollTop : 0;
     saveCart();
     updateCartBadge();
     closeCartQtyModal();
     if (typeof _mvsRenderVisible === 'function') {
+      var _tw = document.getElementById('mainTableWrap');
+      var _savedScroll = _tw ? _tw.scrollTop : 0;
       _mvsRenderVisible();
-      // Double-rAF: first frame lets browser apply the innerHTML reflow,
-      // second frame restores scroll reliably after the reflow settles
-      if (_tw && _savedScroll > 0) {
-        requestAnimationFrame(function() {
-          requestAnimationFrame(function() { _tw.scrollTop = _savedScroll; });
-        });
-      }
-    }
+      if (_tw && _savedScroll > 0) requestAnimationFrame(function(){ _tw.scrollTop = _savedScroll; });
     }
     var toastMsg = '✅ Добавлено: ' + (p.itemName || p.supplierBarcode);
     if (!isManual && storedDivFactor > 1) {
@@ -7595,7 +7513,7 @@ document.addEventListener('click', function(e) {
   }
 
   // ---- divisibility check ----
-  window.checkCartQtyDivisible = function() { /* select always has valid values */ };
+
 
   // ---- checkbox helpers ----
   window.cartToggleCheck = function(cb) {
@@ -7670,20 +7588,27 @@ document.addEventListener('click', function(e) {
     if (!hasChecked) {
       var markedTotal = sup.items.filter(function(it){ return it.myPrice != null; }).length;
       if (markedTotal === 0) return;
-      if (!confirm('Снять наценку со всех ' + markedTotal + ' позиций поставщика?')) return;
+      jeConfirmDialog('Снять наценку со всех ' + markedTotal + ' позиций поставщика?', '↩ Снять наценку').then(function(ok) {
+        if (!ok) return;
+        _doCancelMarkup(sup, false);
+      });
+      return;
     }
-    var cancelled = 0;
-    sup.items.forEach(function(it) {
-      if (it.myPrice == null) return;
-      if (hasChecked && !it._checked) return;
-      it.myPrice = undefined;
-      it._markup = undefined;
-      cancelled++;
-    });
-    if (cancelled === 0) return;
-    saveCart();
-    renderCartModal();
-    if (typeof showToast === 'function') showToast('↩ Наценка отменена у ' + cancelled + ' позиц.', 'ok');
+    _doCancelMarkup(sup, true);
+    function _doCancelMarkup(sup, onlyChecked) {
+      var cancelled = 0;
+      sup.items.forEach(function(it) {
+        if (it.myPrice == null) return;
+        if (onlyChecked && !it._checked) return;
+        it.myPrice = undefined;
+        it._markup = undefined;
+        cancelled++;
+      });
+      if (cancelled === 0) return;
+      saveCart();
+      renderCartModal();
+      if (typeof showToast === 'function') showToast('↩ Наценка отменена у ' + cancelled + ' позиц.', 'ok');
+    }
   };
 
   window.cartSelectAllFromCb = function(cb) {
