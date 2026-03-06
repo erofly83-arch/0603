@@ -127,7 +127,7 @@ body.order-mode .price-clickable::after{content:'🛒 в корзину' !import
 body.order-mode .price-in-cart::after{content:'✓ в корзине' !important;}
 
 /* ── Cart main modal ─────────────────────────────────────────────────────── */
-/* FIX: cartModal transparent backdrop was intercepting ALL clicks when open — must close on outside click (handled via inline onclick) */
+/* FIX: cartModal transparent backdrop was intercepting ALL clicks when open */
 #cartModal{position:fixed;inset:0;background:rgba(0,0,0,0);display:none;align-items:center;justify-content:center;z-index:10025;padding:16px;overflow:hidden;transition:background 180ms ease}
 #cartModal.open{display:flex;background:rgba(0,0,0,0.35)}
 .cart-modal-box{pointer-events:auto}
@@ -434,3 +434,9 @@ body.order-mode .price-in-cart::after{content:'✓ в корзине' !important
 .help-modal-body .empty-state{padding:0}
 .help-modal-body .dash-instr{padding:0 0 8px}
 .help-modal-body .instr-demo-btn{pointer-events:none}
+
+/* Meta/custom/transit editable cells */
+.meta-cell-inp{width:100%;border:none;background:transparent;font-size:var(--fz-md);font-family:'Inter',sans-serif;color:var(--text-primary);padding:4px 8px;outline:none;box-sizing:border-box;}
+.meta-cell-inp:focus{background:var(--accent-lite);border-radius:2px;}
+.meta-cell-empty .meta-cell-inp{color:var(--text-muted);}
+.col-meta-edit{min-width:60px;}

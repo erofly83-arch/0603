@@ -681,15 +681,20 @@ function samePrice(a, b) {
                 }
             }
             if (showTransitColumn) {
-
-                if (transitUserVal !== null) {
+                const transitUserVal = (item.values.has(META_TRANSIT_KEY) && item.values.get(META_TRANSIT_KEY).length > 0)
+                    ? item.values.get(META_TRANSIT_KEY)[0].val : null;
+                if (transitUserVal !== null && transitUserVal !== '') {
                     item.values.set(META_TRANSIT_KEY, [{ val: transitUserVal, rowName: '', originalBarcode: item.barcode, meta: true }]);
                 } else if (!item.values.has(META_TRANSIT_KEY)) {
                     item.values.set(META_TRANSIT_KEY, [{ val: '', rowName: '', originalBarcode: item.barcode, meta: true }]);
                 }
             }
-
-                item.values.set(cc.key, [{ val: savedVal, rowName: '', originalBarcode: item.barcode, meta: true }]);
+            allColumns.filter(c => c.metaType === 'custom').forEach(cc => {
+                const savedVal = (item.values.has(cc.key) && item.values.get(cc.key).length > 0)
+                    ? item.values.get(cc.key)[0].val : null;
+                if (savedVal !== null) {
+                    item.values.set(cc.key, [{ val: savedVal, rowName: '', originalBarcode: item.barcode, meta: true }]);
+                }
             });
 
 return { barcode: item.barcode, packQty, autoDivFactor,
@@ -964,8 +969,6 @@ return { barcode: item.barcode, packQty, autoDivFactor,
         if (newName && newName.trim() !== '' && newName.trim() !== col.displayName) {
             col.displayName = newName.trim();
 
-            if (cc) cc.displayName = newName.trim();
-
             if (colKey === META_TRANSIT_KEY) _transitDisplayName = newName.trim();
             updateHiddenColumnsPanel();
             renderTable();
@@ -1100,12 +1103,12 @@ return { barcode: item.barcode, packQty, autoDivFactor,
                 const _mv = (valuesArr && valuesArr.length > 0) ? valuesArr[0].val : '';
                 const _mvStr = (_mv === undefined || _mv === null) ? '' : String(_mv).trim();
                 if (_isEditable) {
-
-                    const _ck = col.key.replace(/'/g, "\'");
-                    const _bc = item.barcode.replace(/'/g, "\'");
+                    const _ck = col.key.replace(/'/g, "\\'");
+                    const _bc = item.barcode.replace(/'/g, "\\'");
                     const _display = _mvStr || '';
                     const _isEmpty = !_display;
-                    return;
+                    const _esc2 = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+                    html += `<td class="col-meta-edit${_isEmpty?' meta-cell-empty':''}" style="padding:0"><input type="text" class="meta-cell-inp" value="${_esc2(_display)}" data-colkey="${_esc2(_ck)}" data-bc="${_esc2(_bc)}" placeholder="—" onchange="window._pmMetaSave&&window._pmMetaSave('${_bc}','${_ck}',this.value)" onkeydown="if(event.key==='Enter')this.blur()"></td>`; return;
                 }
                 if (!_mvStr) {
                     cellContent = '—';
@@ -1723,6 +1726,15 @@ return { barcode: item.barcode, packQty, autoDivFactor,
     window.editColumnName = editColumnName;
     window.toggleTransitColumn = toggleTransitColumn;
 
+    // Save user-edited meta cell (transit / custom columns) directly into groupedData
+    window._pmMetaSave = function(barcode, colKey, val) {
+        var row = groupedData && groupedData.find(function(r){ return r.barcode === barcode; });
+        if (!row) return;
+        val = (val === undefined || val === null) ? '' : String(val).trim();
+        row.values.set(colKey, [{ val: val, rowName: '', originalBarcode: barcode, meta: true }]);
+        if (typeof window._pmScheduleSave === 'function') window._pmScheduleSave();
+    };
+
     window._generateExcel = generateExcel;
     window._pmApp = {
       get myPriceData() { return myPriceData; },
@@ -2254,45 +2266,6 @@ if (obrQueueSkipBtn) {
     if (fileQueue.length === 0) return;
     showToast(`⏭ Файл «${originalFileName}» пропущен`, 'warn');
     loadNextFromQueue();
-  });
-}
-
-  downloadArchiveBtn.addEventListener("click", async function() {
-    if (!_obrArchiveFiles.length) { showToast('Нет обработанных файлов для архива', 'warn'); return; }
-    try {
-      const zip = new JSZip();
-      _obrArchiveFiles.forEach(function(f) {
-        zip.file(f.fileName, f.csvText);
-      });
-
-      try {
-        if (typeof jeDB !== 'undefined' || typeof _brandDB !== 'undefined') {
-          const combined = {
-            barcodes: (typeof jeDB !== 'undefined') ? jeDB : {},
-            brands: (typeof _brandDB !== 'undefined') ? _brandDB : {},
-            categoryWords: (typeof _catWordsBase !== 'undefined' && _catWordsBase.size > 0) ? [..._catWordsBase].sort() : undefined,
-            columnSettings: (typeof columnTemplates !== 'undefined' && typeof columnSynonyms !== 'undefined') ? {
-              templates: columnTemplates, synonyms: columnSynonyms
-            } : undefined
-          };
-          const hasData = Object.keys(combined.barcodes).length > 0 || Object.keys(combined.brands).length > 0;
-          if (hasData) {
-            const now2 = new Date();
-            const stamp2 = now2.getFullYear() + '_' + String(now2.getMonth()+1).padStart(2,'0') + '_' + String(now2.getDate()).padStart(2,'0');
-            zip.file('settings_' + stamp2 + '.json', JSON.stringify(combined, null, 2));
-          }
-        }
-      } catch(je) {   }
-      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-      const now = new Date();
-      const stamp = now.getFullYear() + '_' +
-        String(now.getMonth()+1).padStart(2,'0') + '_' +
-        String(now.getDate()).padStart(2,'0');
-      saveAs(blob, 'price_export_' + stamp + '.zip');
-      showToast(`✅ Архив скачан: ${_obrArchiveFiles.length} файл${_obrArchiveFiles.length===1?'':'а'}`, 'ok');
-    } catch(err) {
-      showToast('Ошибка создания архива: ' + (err.message||String(err)), 'err');
-    }
   });
 }
 
@@ -6724,18 +6697,17 @@ window._matchHistoryAdd = _addMatchHistoryEntry;
 
 
 
+
 // ===== CART LOGIC =====
 (function(){
-  // ── In-app debug log (visible in UI — no console needed) ──
+  // ── In-app debug log ──
   var _cartDbgEntries = [];
   function _cartDbgLog(msg, type) {
-    var t = new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    var t = new Date().toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
     _cartDbgEntries.push({ t: t, msg: msg, type: type || 'info' });
     if (_cartDbgEntries.length > 40) _cartDbgEntries.shift();
     _cartDbgRender();
-    if (type === 'err') {
-      if (typeof showToast === 'function') showToast('🛒 ' + msg, 'err');
-    }
+    if (type === 'err' && typeof showToast === 'function') showToast('🛒 ' + msg, 'err');
   }
   function _cartDbgRender() {
     var panel = document.getElementById('_cartDbgPanel');
@@ -6743,33 +6715,26 @@ window._matchHistoryAdd = _addMatchHistoryEntry;
     var list = document.getElementById('_cartDbgList');
     if (!list) return;
     list.innerHTML = _cartDbgEntries.slice().reverse().map(function(e) {
-      var color = e.type === 'err' ? '#FCA5A5' : e.type === 'warn' ? '#FDE68A' : e.type === 'ok' ? '#A7F3D0' : '#CBD5E1';
-      return '<div style="border-bottom:1px solid rgba(255,255,255,.08);padding:3px 0;color:' + color + '"><span style="opacity:.5;font-size:9px;margin-right:5px;">' + e.t + '</span>' + _dbgEsc(e.msg) + '</div>';
+      var color = e.type==='err'?'#FCA5A5':e.type==='warn'?'#FDE68A':e.type==='ok'?'#A7F3D0':'#CBD5E1';
+      return '<div style="border-bottom:1px solid rgba(255,255,255,.08);padding:3px 0;color:'+color+'"><span style="opacity:.5;font-size:9px;margin-right:5px;">'+e.t+'</span>'+e.msg.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</div>';
     }).join('');
   }
-  function _dbgEsc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
   window._cartDbgLog = _cartDbgLog;
   window._cartDbgToggle = function() {
     var panel = document.getElementById('_cartDbgPanel');
     if (!panel) return;
-    var isHidden = panel.style.display === 'none';
-    panel.style.display = isHidden ? 'block' : 'none';
-    if (isHidden) _cartDbgRender();
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    _cartDbgRender();
   };
-  // Inject panel into DOM once
+  window._cartDbgClear = function() { _cartDbgEntries = []; var l = document.getElementById('_cartDbgList'); if (l) l.innerHTML = ''; };
   document.addEventListener('DOMContentLoaded', function() {
     if (document.getElementById('_cartDbgPanel')) return;
     var panel = document.createElement('div');
     panel.id = '_cartDbgPanel';
     panel.style.cssText = 'display:none;position:fixed;bottom:60px;left:50%;transform:translateX(-50%);width:540px;max-width:95vw;background:#0F172A;border:1px solid #334155;border-radius:8px;z-index:99998;font-family:monospace;font-size:11px;box-shadow:0 8px 32px rgba(0,0,0,.5);';
-    panel.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #334155;background:#1E293B;border-radius:8px 8px 0 0;"><span style="color:#94A3B8;font-weight:700;font-size:11px;">🛒 Лог корзины</span><button onclick="window._cartDbgToggle()" style="background:none;border:none;color:#64748B;cursor:pointer;font-size:14px;line-height:1;">✕</button></div><div id="_cartDbgList" style="max-height:200px;overflow-y:auto;padding:6px 12px;"></div><div style="padding:5px 12px 7px;border-top:1px solid #334155;display:flex;gap:8px;"><button onclick="window._cartDbgClear()" style="background:#1E293B;border:1px solid #334155;color:#94A3B8;border-radius:4px;padding:2px 10px;font-size:10px;cursor:pointer;">Очистить</button></div>';
+    panel.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #334155;background:#1E293B;border-radius:8px 8px 0 0;"><span style="color:#94A3B8;font-weight:700;font-size:11px;">🛒 Лог корзины</span><button onclick="window._cartDbgToggle()" style="background:none;border:none;color:#64748B;cursor:pointer;font-size:14px;line-height:1;">✕</button></div><div id="_cartDbgList" style="max-height:200px;overflow-y:auto;padding:6px 12px;"></div><div style="padding:5px 12px 7px;border-top:1px solid #334155;"><button onclick="window._cartDbgClear()" style="background:#1E293B;border:1px solid #334155;color:#94A3B8;border-radius:4px;padding:2px 10px;font-size:10px;cursor:pointer;">Очистить</button></div>';
     document.body.appendChild(panel);
   });
-  window._cartDbgClear = function() {
-    _cartDbgEntries = [];
-    var list = document.getElementById('_cartDbgList');
-    if (list) list.innerHTML = '';
-  };
 
   var _cartPending = null; // pending item for qty dialog
   // cart structure: { supplierFileName: { items: [{barcode, name, price, qty}] } }
@@ -6779,7 +6744,6 @@ window._matchHistoryAdd = _addMatchHistoryEntry;
     // Bug #7 fix: use localStorage so cart persists across tabs (consistent with orderMode storage)
     try { localStorage.setItem('pm_cart', JSON.stringify(cart)); } catch(e) {
       if (typeof showToast === 'function') showToast('Не удалось сохранить корзину: ' + e.message, 'err');
-      _cartDbgLog('saveCart FAILED: ' + e.message);
     }
     _rebuildCartedKeys();
   }
@@ -7088,8 +7052,7 @@ window._matchHistoryAdd = _addMatchHistoryEntry;
   // ---- price click handler ----
   window.priceClick = function(supplierBarcode, colKey, priceDisplay, mainBarcode, divFactor, cellMin, cellMax, hasDivBtn) {
     if (!orderMode) {
-      // original behavior: copy barcode
-      _cartDbgLog('priceClick в режиме копирования (заказ выключен): ' + supplierBarcode, 'warn');
+      _cartDbgLog('priceClick: режим копирования (заказ выключен) — ' + supplierBarcode, 'warn');
       if (navigator.clipboard) navigator.clipboard.writeText(String(supplierBarcode)).catch(function(){});
       return;
     }
@@ -7220,7 +7183,7 @@ window._matchHistoryAdd = _addMatchHistoryEntry;
       var mi = document.getElementById('cqManualInput');
       if (mi) { mi.focus({ preventScroll: true }); mi.select(); }
     }, 40);
-    _cartDbgLog('priceClick: ' + (itemName||supplierBarcode) + ' | sup=' + supplierName + ' | col=' + colKey + ' | df=' + divFactor + ' | pack=' + _detectedPack.confidence + '(' + _detectedPack.candidates + ')');
+    _cartDbgLog('priceClick: ' + (itemName||supplierBarcode) + ' | sup=' + supplierName + ' | df=' + divFactor + ' | pack=' + _detectedPack.confidence + '[' + _detectedPack.candidates + ']');
     document.getElementById('cartQtyModal').classList.add('open');
   };
 
@@ -7238,8 +7201,8 @@ window._matchHistoryAdd = _addMatchHistoryEntry;
       storedDivFactor = undefined;  // no block tracking
     } else {
       qtyToStore = Math.round(qtyInput / divFactor); // в блоках
-      if (qtyToStore < 1) qtyToStore = 1; // guard: never store 0 blocks (e.g. qty=1, factor=10 → Math.round(0.1)=0)
-    _cartDbgLog('doAdd: ' + (p.itemName || p.supplierBarcode) + ' | qty=' + qtyToStore + ' | df=' + (storedDivFactor||1) + ' | manual=' + isManual + ' | col=' + p.colKey, 'ok');
+      if (qtyToStore < 1) qtyToStore = 1; // guard: never store 0 blocks
+      _cartDbgLog('doAdd: ' + (p.itemName||p.supplierBarcode) + ' | qty=' + qtyToStore + ' | df=' + (storedDivFactor||1) + ' | manual=' + isManual + ' | col=' + p.colKey, 'ok');
       storedDivFactor = divFactor;
     }
     if (!cart[p.supplierName]) cart[p.supplierName] = { items: [] };
